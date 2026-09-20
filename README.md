@@ -174,6 +174,78 @@ hermes plugins list | grep jev
 # │ hermes-jev │ enabled │ 0.2.1.2 │ ...
 ```
 
+## Fully activating Jev (step-by-step)
+
+The plugin installs in **shadow mode** by default — it observes and reports what it *would* do, but never replaces the built-in `ContextCompressor`. To actually activate it:
+
+### 1. Verify the plugin is loaded
+
+```bash
+hermes plugins list | grep jev
+# │ hermes-jev │ enabled │ 0.2.1.2 │ ...
+```
+
+If not installed:
+```bash
+hermes plugins install keeltrace/hermes-jev
+```
+
+### 2. Activate the Jev context engine
+
+```bash
+hermes config set context.engine jev
+```
+
+This is the **critical step** that is easily missed. Without it, `context.engine` defaults to `compressor` and the Jev engine runs in shadow mode (observing only).
+
+### 3. Activate for all profiles (if using profiles)
+
+```bash
+for p in ~/.hermes/profiles/*/; do
+  profile=$(basename "$p")
+  hermes --profile "$profile" config set context.engine jev
+done
+```
+
+### 4. Restart the gateway
+
+```bash
+hermes gateway restart
+```
+
+### 5. Verify it's active
+
+```bash
+# Check config
+hermes config get context.engine
+# → jev
+
+# Check gateway logs for registration
+journalctl --user -u hermes-gateway.service --no-pager -n 20 | grep jev
+# Plugin 'hermes-jev' registered context engine: jev
+# Hermes-Jev 0.2.1.2 loaded ... context_engine_register=True
+
+# Check plugin is loaded in-session
+hermes plugins list | grep jev
+# │ hermes-jev │ enabled │ 0.2.1.2 │ ...
+```
+
+### What changes after activation
+
+| Before (shadow) | After (active) |
+|-----------------|----------------|
+| 55% context reduction | 75% context reduction |
+| ContextCompressor summarizes old tool results | Jev curates by relevance probability |
+| User/agent messages preserved | User/agent messages preserved verbatim |
+| Tool results summarized | Tool results: PIN, ANCHOR, or DROP based on Jev assessment |
+| No context curation per turn | `select_context()` runs before every LLM call |
+
+### Troubleshooting
+
+- **`context.engine` reverts to `compressor`**: Make sure you set it, not just the plugin settings. The config key is `context.engine`, not `plugins.entries.hermes-jev.settings.context_engine_mode`.
+- **Plugin not loading**: Check `hermes plugins list | grep jev`. If missing, run `hermes plugins install keeltrace/hermes-jev` and restart gateway.
+- **No visible difference**: The Jev context engine only kicks in when context usage exceeds `context_engine_threshold_percent` (default 0.72). Short conversations won't trigger curation.
+
 ## Further reading
 
 - [TypeSafe AI — System One Models](https://typesafe.ai/blog/introducing-system-one-models-and-jev)
